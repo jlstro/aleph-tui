@@ -1,7 +1,6 @@
-use chrono::{Local, NaiveDateTime, Utc};
+use chrono::Local;
 use humanize_duration::prelude::DurationExt;
 use humanize_duration::Truncate;
-use itertools::Itertools;
 use num_format::{Locale, ToFormattedString};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -11,7 +10,7 @@ use ratatui::{
     widgets::{Block, Borders, Padding, Paragraph, Row, Table},
 };
 
-use crate::{app::App, models::StageOrStages};
+use crate::app::App;
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
@@ -78,61 +77,87 @@ pub fn render(app: &mut App, f: &mut Frame) {
     f.render_widget(title, chunks[0]);
 
     let mut rows = Vec::new();
-    let now = Utc::now().naive_utc();
-    for result in &app.status.results {
-        let last_update = match result.last_update.clone() {
-            Some(t) => {
-                let last_update = NaiveDateTime::parse_from_str(&t, "%Y-%m-%dT%H:%M:%S.%f")
-                    .expect("Failed to parse last_update timestamp");
-                let last_update = now - last_update;
-                let last_update = last_update.human(Truncate::Second);
-                last_update.to_string()
-            }
-            None => "".to_string(),
-        };
 
+    for result in &app.status.results {
+        // ROW 1: Collection row
         let collection_id = match &result.collection {
-            Some(c) => c.id.to_string(),
+            Some(c) => c.collection_id.clone(),
+            None => "-".to_string(),
+        };
+        let collection_foreign_id = match &result.collection {
+            Some(c) => c.foreign_id.clone(),
             None => "-".to_string(),
         };
         let collection_label = match &result.collection {
-            Some(c) => c.label.to_string(),
-            None => match result.stages.clone() {
-                Some(s) => match s {
-                    StageOrStages::Stage(s) => s.stage,
-                    StageOrStages::Stages(v) => {
-                        v.iter().map(|s| s.stage.to_string() + ", ").collect()
-                    }
-                },
-                None => "".to_string(),
-            },
+            Some(c) => c.label.clone(),
+            None => result.name.clone(),
         };
+        let start_timestamp = result.min_ts.as_ref().unwrap_or(&"-".to_string()).clone();
+
         rows.push(Row::new(vec![
             collection_id,
+            collection_foreign_id,
             collection_label,
-            result.finished.to_formatted_string(&Locale::en),
-            result.running.to_formatted_string(&Locale::en),
-            result.pending.to_formatted_string(&Locale::en),
-            last_update,
-        ]))
+            start_timestamp,
+            result.todo.to_formatted_string(&Locale::en),
+            result.doing.to_formatted_string(&Locale::en),
+            result.succeeded.to_formatted_string(&Locale::en),
+            result.failed.to_formatted_string(&Locale::en),
+            result.aborted.to_formatted_string(&Locale::en),
+            result.aborting.to_formatted_string(&Locale::en),
+            result.cancelled.to_formatted_string(&Locale::en),
+        ]).style(Style::new().add_modifier(Modifier::BOLD)));
+
+        // ROW 2+: Task rows
+        for batch in &result.batches {
+            for queue in &batch.queues {
+                for task in &queue.tasks {
+                    let task_start_timestamp = task.min_ts.as_ref().unwrap_or(&"-".to_string()).clone();
+
+                    rows.push(Row::new(vec![
+                        "".to_string(), // Empty collection ID column
+                        batch.name.clone(), // Batch name in foreign ID column
+                        format!("  {}", task.name), // Indented task name in label column
+                        task_start_timestamp, // Task timestamp in same column as collection timestamp
+                        task.todo.to_formatted_string(&Locale::en),
+                        task.doing.to_formatted_string(&Locale::en),
+                        task.succeeded.to_formatted_string(&Locale::en),
+                        task.failed.to_formatted_string(&Locale::en),
+                        task.aborted.to_formatted_string(&Locale::en),
+                        task.aborting.to_formatted_string(&Locale::en),
+                        task.cancelled.to_formatted_string(&Locale::en),
+                    ]));
+                }
+            }
+        }
     }
     let widths = [
-        Constraint::Length(5),
-        Constraint::Min(20),
-        Constraint::Length(10),
-        Constraint::Length(10),
-        Constraint::Length(10),
-        Constraint::Length(25),
+        Constraint::Length(15),  // Collection ID
+        Constraint::Length(15),  // Foreign ID
+        Constraint::Min(20),     // Label
+        Constraint::Length(20),  // Start Timestamp
+        Constraint::Length(8),   // Todo
+        Constraint::Length(8),   // Doing
+        Constraint::Length(8),   // Succeeded
+        Constraint::Length(8),   // Failed
+        Constraint::Length(8),   // Aborted
+        Constraint::Length(8),   // Aborting
+        Constraint::Length(8),   // Cancelled
     ];
     let table = Table::new(rows, widths)
         .header(
             Row::new(vec![
-                "ID",
-                "Label",
-                "Finished",
-                "Running",
-                "Pending",
-                "Last update",
+                "Collection ID",
+                "Foreign ID",
+                "Label/Task Name",
+                "Start Time",
+                "Todo",
+                "Doing",
+                "Success",
+                "Failed",
+                "Aborted",
+                "Aborting",
+                "Cancel",
             ])
             .bottom_margin(1),
         )
@@ -142,18 +167,46 @@ pub fn render(app: &mut App, f: &mut Frame) {
     f.render_stateful_widget(table, chunks[1], &mut app.collection_tablestate);
 
     if let Some(index) = app.collection_tablestate.selected() {
-        let result = &app.status.results[index];
-        if let Some(stages) = &result.stages {
-            let body = match stages {
-                StageOrStages::Stage(stage) => stage.to_string(),
-                StageOrStages::Stages(stages) => {
-                    stages.iter().sorted_by_key(|s| &s.stage).join("\n")
+        // Find which result and row type is selected
+        let mut current_row = 0;
+        let mut selected_result = None;
+
+        for result in &app.status.results {
+            if current_row == index {
+                selected_result = Some(result);
+                break;
+            }
+            current_row += 1;
+
+            // Skip task rows for this collection
+            for batch in &result.batches {
+                for queue in &batch.queues {
+                    current_row += queue.tasks.len();
                 }
-            };
+            }
+        }
+
+        if let Some(result) = selected_result {
             let title = match &result.collection {
                 Some(col) => format!("Collection {} <{}>", col.collection_id, col.label),
                 None => "Details".to_string(),
             };
+
+            let url = match &result.collection {
+                Some(col) => col.links.ui.clone(),
+                None => "N/A".to_string(),
+            };
+
+            let body = format!(
+                "Total: {} | Active: {} | Finished: {}\nRemaining time: {}\nTook: {}\nURL: {}",
+                result.total,
+                result.active,
+                result.finished,
+                result.remaining_time.as_ref().unwrap_or(&"N/A".to_string()),
+                result.took.as_ref().unwrap_or(&"N/A".to_string()),
+                url
+            );
+
             let info_block = Block::default()
                 .title(title)
                 .padding(Padding::new(1, 1, 1, 1))
@@ -161,7 +214,7 @@ pub fn render(app: &mut App, f: &mut Frame) {
                 .border_type(ratatui::widgets::BorderType::Rounded);
             let info_block = Paragraph::new(body).block(info_block);
             f.render_widget(info_block, chunks[2]);
-        };
+        }
     }
 
     f.render_widget(
