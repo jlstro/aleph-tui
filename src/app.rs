@@ -287,7 +287,15 @@ impl App {
 
     pub(crate) fn collection_down(&mut self) {
         let index = self.collection_tablestate.selected().unwrap_or_default();
-        if index < self.status.results.len() {
+
+        // Calculate total number of rows (collections + tasks)
+        let total_rows = self.status.results.iter().map(|result| {
+            1 + result.batches.iter().map(|batch| {
+                batch.queues.iter().map(|queue| queue.tasks.len()).sum::<usize>()
+            }).sum::<usize>()
+        }).sum::<usize>();
+
+        if index < total_rows.saturating_sub(1) {
             self.collection_tablestate.select(Some(index + 1));
         }
     }

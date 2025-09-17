@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -17,14 +15,13 @@ pub struct Collection {
     pub updated_at: String,
     pub category: String,
     pub frequency: String,
+    pub countries: Option<Vec<String>>,
+    pub name: String,
     pub collection_id: String,
     pub foreign_id: String,
-    pub data_updated_at: String,
     pub label: String,
     pub casefile: bool,
     pub secret: bool,
-    pub xref: Option<bool>,
-    pub restricted: Option<bool>,
     pub id: String,
     pub writeable: bool,
     pub links: Links,
@@ -32,41 +29,83 @@ pub struct Collection {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct Stage {
-    pub job_id: String,
-    pub stage: String,
+pub struct Task {
+    pub todo: u32,
+    pub doing: u32,
+    pub succeeded: u32,
+    pub failed: u32,
+    pub aborted: u32,
+    pub aborting: u32,
+    pub cancelled: u32,
+    pub min_ts: Option<String>,
+    pub max_ts: Option<String>,
+    pub name: String,
+    pub remaining_time: Option<String>,
+    pub took: Option<String>,
+    pub total: u32,
+    pub active: u32,
     pub finished: u32,
-    pub running: u32,
-    pub pending: u32,
 }
 
-impl Display for Stage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{:<10} finished: {:<7} running {:<7} pending {:<7}",
-            self.stage, self.finished, self.running, self.pending
-        )
-    }
+#[derive(Clone, Debug, Deserialize)]
+pub struct Queue {
+    pub todo: u32,
+    pub doing: u32,
+    pub succeeded: u32,
+    pub failed: u32,
+    pub aborted: u32,
+    pub aborting: u32,
+    pub cancelled: u32,
+    pub min_ts: Option<String>,
+    pub max_ts: Option<String>,
+    pub name: String,
+    pub tasks: Vec<Task>,
+    pub remaining_time: Option<String>,
+    pub took: Option<String>,
+    pub total: u32,
+    pub active: u32,
+    pub finished: u32,
 }
 
-#[derive(Clone, Deserialize, Debug)]
-#[serde(untagged)]
-pub enum StageOrStages {
-    Stage(Stage),
-    Stages(Vec<Stage>),
+#[derive(Clone, Debug, Deserialize)]
+pub struct Batch {
+    pub todo: u32,
+    pub doing: u32,
+    pub succeeded: u32,
+    pub failed: u32,
+    pub aborted: u32,
+    pub aborting: u32,
+    pub cancelled: u32,
+    pub min_ts: Option<String>,
+    pub max_ts: Option<String>,
+    pub name: String,
+    pub queues: Vec<Queue>,
+    pub remaining_time: Option<String>,
+    pub took: Option<String>,
+    pub total: u32,
+    pub active: u32,
+    pub finished: u32,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct StatusResult {
-    pub finished: u32,
-    pub running: u32,
-    pub pending: u32,
-    pub start_time: Option<String>,
-    pub end_time: Option<String>,
-    pub last_update: Option<String>,
+    pub todo: u32,
+    pub doing: u32,
+    pub succeeded: u32,
+    pub failed: u32,
+    pub aborted: u32,
+    pub aborting: u32,
+    pub cancelled: u32,
+    pub min_ts: Option<String>,
+    pub max_ts: Option<String>,
+    pub name: String,
+    pub batches: Vec<Batch>,
     pub collection: Option<Collection>,
-    pub stages: Option<StageOrStages>,
+    pub remaining_time: Option<String>,
+    pub took: Option<String>,
+    pub total: u32,
+    pub active: u32,
+    pub finished: u32,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
